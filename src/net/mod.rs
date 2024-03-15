@@ -1,37 +1,37 @@
-use log::{error, info};
-use std::{
-    io::{BufRead, BufReader, BufWriter, Write},
-    net::TcpStream,
-};
+use futures_lite::StreamExt;
+use futures_util::sink::SinkExt;
+use log::info;
+use nectar::{event::TelnetEvent, TelnetCodec};
+use tokio::net::TcpStream;
+use tokio_util::codec::Framed;
 
-pub async fn tcp_socket_listener(socket: TcpStream) {
-    info!("Accepted new connection from {:?}", &socket);
-    let socket2 = socket.try_clone().unwrap();
+pub async fn tcp_socket_listener(stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    let socketinfo = match stream.peer_addr() {
+        Ok(addr) => format!("{:?}", addr),
+        _ => "UNKNOWN".to_owned(),
+    };
 
-    let mut reader = BufReader::new(&socket);
-    let mut writer = BufWriter::new(&socket2);
+    info!("Accepted new connection from {:?}", &socketinfo);
 
-    let _ = writer.write("--- Connected to Dusk ---\n".as_bytes());
-    let _ = writer.flush();
+    let mut frame = Framed::new(stream, TelnetCodec::new(1024));
 
-    loop {
-        let mut line = String::new();
-        match reader.read_line(&mut line) {
-            Ok(_) => {
-                if line.ends_with("\n") {
-                    line.pop();
-                    if line.ends_with("\r") {
-                        line.pop();
-                    }
-                }
-                info!("Got line: {}", line);
+    frame
+        .send(TelnetEvent::Message("--- Connected to Dusk ---".to_owned()))
+        .await?;
+
+    // In a real application, you would want to handle Some(Err(_)) and None
+    // variants, but for this example we'll be succinct for simplicities sake.
+    while let Some(Ok(msg)) = frame.next().await {
+        match msg {
+            // We'll keep it simple and only match against the Message event.
+            TelnetEvent::Message(string) => {
+                // Let's echo back what we received.
+                frame.send(TelnetEvent::Message(string)).await?;
             }
-            Err(e) => {
-                error!("Error reading line: {:?}", e);
-                break;
-            }
+            _ => break,
         }
     }
-    let _ = socket.shutdown(std::net::Shutdown::Both);
-    info!("Closed connection from {:?}", &socket);
+
+    info!("Closed connection from {:?}", &socketinfo);
+    Ok(())
 }

@@ -1,6 +1,6 @@
 use log::error;
-use std::net::TcpListener;
 use std::time::SystemTime;
+use tokio::net::TcpListener;
 
 mod net;
 
@@ -33,13 +33,17 @@ async fn main() {
         }
     };
 
+    //let connection_manager: Arc<Mutex<HashMap<String, ManagedConnection>>> = Arc::new(Mutex::new(HashMap::new()));
+
     // Bind the listener to the address
-    match TcpListener::bind("127.0.0.1:6379") {
+    match TcpListener::bind("127.0.0.1:6379").await {
         // TODO: support for graceful shutdown
         Ok(listener) => loop {
-            if let Ok((socket, _)) = listener.accept() {
+            if let Ok((socket, _)) = listener.accept().await {
                 tokio::spawn(async move {
-                    net::tcp_socket_listener(socket).await;
+                    if let Err(e) = net::tcp_socket_listener(socket).await {
+                        error!("Error received from TCP socket listener: {:?}", e);
+                    }
                 });
             }
         },
